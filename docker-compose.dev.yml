@@ -1,0 +1,16 @@
+services:
+  backend:
+    environment:
+      APP_ENV: development
+      CLAMAV_ENABLED: "false"
+      DEBUG: "false"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    ports:
+      - "5173:80"
+
+  nginx:
+    profiles:
+      - production

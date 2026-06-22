@@ -1,0 +1,233 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+
+  h1, h2, h3, h4, h5 {
+    @apply font-serif text-ink;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    @apply bg-teal-200/60 text-ink;
+  }
+
+  /* Calmer focus ring for keyboard users */
+  :focus-visible {
+    @apply outline-none;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.35);
+    border-radius: 6px;
+  }
+
+  /* Tabular numbers everywhere we show data */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* ---------- Buttons ---------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5
+      text-sm font-medium transition-all duration-200 ease-out-soft
+      disabled:cursor-not-allowed disabled:opacity-50
+      focus-visible:ring-2 focus-visible:ring-teal-500/40;
+  }
+  .btn-primary {
+    @apply btn bg-teal-500 text-white shadow-soft
+      hover:bg-teal-600 hover:shadow-soft-md hover:-translate-y-0.5
+      active:translate-y-0;
+  }
+  .btn-secondary {
+    @apply btn border border-sand-200 bg-canvas-card text-ink-soft shadow-soft-sm
+      hover:bg-canvas-raised hover:border-teal-200 hover:-translate-y-0.5
+      active:translate-y-0;
+  }
+  .btn-ghost {
+    @apply btn text-ink-muted hover:text-ink hover:bg-canvas-subtle;
+  }
+  .btn-danger {
+    @apply btn border border-danger-200 bg-danger-50 text-danger-700
+      hover:bg-danger-600 hover:text-white hover:border-danger-600;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs rounded-lg;
+  }
+  .btn-lg {
+    @apply px-7 py-3.5 text-base rounded-xl;
+  }
+
+  /* ---------- Inputs ---------- */
+  .input-field {
+    @apply w-full rounded-xl border border-sand-200 bg-canvas-card px-4 py-3
+      text-sm text-ink placeholder:text-ink-muted/60
+      transition-all duration-200
+      focus:border-teal-400 focus:ring-4 focus:ring-teal-500/10 focus:outline-none
+      hover:border-teal-200;
+  }
+
+  .input-label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-ink-muted;
+  }
+
+  /* ---------- Surfaces ---------- */
+  .card {
+    @apply rounded-2xl border border-sand-200 bg-canvas-card p-6 shadow-soft;
+  }
+  .card-airy {
+    @apply rounded-2xl border border-sand-200/70 bg-canvas-card/80 p-8 shadow-soft-sm;
+  }
+  .card-subtle {
+    @apply rounded-2xl bg-canvas-subtle p-6;
+  }
+
+  /* ---------- Decorative ---------- */
+  .divider {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-sand-200 to-transparent;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-teal-600;
+  }
+
+  /* ---------- Skeleton shimmer ---------- */
+  .skeleton {
+    @apply rounded-md bg-gradient-to-r from-sand-100 via-canvas-subtle to-sand-100
+      bg-[length:1000px_100%] animate-shimmer;
+  }
+
+  /* ---------- Trust badge ---------- */
+  .trust-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-sand-200
+      bg-canvas-card/70 px-3 py-1 text-xs font-medium text-ink-muted
+      backdrop-blur-sm;
+  }
+
+  /* ---------- Pill toggle (reading-level switcher) ---------- */
+  .pill-group {
+    @apply inline-flex items-center gap-1 rounded-xl border border-sand-200
+      bg-canvas-subtle p-1;
+  }
+  .pill {
+    @apply rounded-lg px-3 py-1.5 text-xs font-medium text-ink-muted
+      transition-all duration-200 ease-out-soft
+      hover:text-ink;
+  }
+  .pill-active {
+    @apply bg-canvas-card text-ink shadow-soft-sm;
+  }
+
+  /* ---------- Fade-in helper ---------- */
+  .fade-in-up {
+    @apply animate-fade-in-up;
+  }
+  .fade-in {
+    @apply animate-fade-in;
+  }
+
+  /* ---------- Prose tweaks for AI explanations ---------- */
+  .prose-explanation {
+    @apply text-sm leading-relaxed text-ink-soft;
+  }
+  .prose-explanation p {
+    @apply mb-3;
+  }
+  .prose-explanation strong {
+    @apply font-semibold text-ink;
+  }
+
+  /* ---------- PDF text layer (native selection surface) ---------- */
+  .pdf-text-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    line-height: 1;
+    z-index: 5;            /* above canvas, below heatmap (z-10) and gaze (z-20) */
+    pointer-events: auto;
+  }
+  .pdf-text-layer span {
+    position: absolute;
+    white-space: pre;
+    color: transparent;    /* canvas shows the glyphs; spans just provide selectable text */
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+    transform-origin: 0 0;
+  }
+  .pdf-text-layer ::selection {
+    background: rgba(13, 148, 136, 0.28);   /* teal highlight */
+    color: transparent;
+  }
+  .pdf-text-layer ::-moz-selection {
+    background: rgba(13, 148, 136, 0.28);
+    color: transparent;
+  }
+
+  /* ---------- Dwell highlight (cursor tracking) ---------- */
+  .pdf-text-layer .dwell-highlight {
+    background: rgba(13, 148, 136, 0.3);
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(13, 148, 136, 0.15);
+    transition: background 0.15s ease-out;
+  }
+    /* ---------- Cursor tracking active state ---------- */
+  /* When cursor tracking is active, hide the OS cursor inside the report
+     container so only the teal gaze dot is visible. The text layer spans
+     still receive mouse events (for dwell detection) but don't show the
+     I-beam caret. */
+     .cursor-tracking-active,
+     .cursor-tracking-active * {
+       cursor: none !important;
+     }
+   
+     /* Also hide the native caret inside the text layer when tracking */
+     .cursor-tracking-active .pdf-text-layer span {
+       caret-color: transparent;
+     }
+}
+
+@layer utilities {
+  /* Subtle paper grain used on hero surfaces */
+  .bg-grain {
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(15, 42, 74, 0.025) 1px, transparent 0);
+    background-size: 18px 18px;
+  }
+
+  /* Soft hairline rule */
+  .hairline {
+    @apply border-sand-200;
+  }
+}
