@@ -275,6 +275,7 @@ export function ReportViewer({
 
     const text = selection.toString().trim();
     if (!text || text.length < 2) return;
+    onTextSelect(text);
 
     const rect = selection.getRangeAt(0).getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
