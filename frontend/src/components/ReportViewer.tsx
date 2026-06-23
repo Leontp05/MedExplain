@@ -39,7 +39,6 @@ export function ReportViewer({
   const [explanationPoints, setExplanationPoints] = useState<ExplanationMarker[]>([]);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
 
-  // Dwell popup state
   const [dwellPopup, setDwellPopup] = useState<{
     text: string;
     rect: DOMRect;
@@ -65,38 +64,74 @@ export function ReportViewer({
     setDwellPopup(null);
   }, []);
 
+  // --------------------------------------------------------------------------
+  // handleDwell — called when the cursor dwells on a spot for >= 1 second.
+  // Uses getBoundingClientRect() for line detection (scroll-proof) and
+  // snaps to the nearest span if the cursor is in a gap.
+  // --------------------------------------------------------------------------
   const handleDwell = useCallback(
-    (point: { x: number; y: number; target: HTMLElement | null }) => {
-      const target = point.target;
+    (point: {
+      x: number;
+      y: number;
+      clientX: number;
+      clientY: number;
+      target: HTMLElement | null;
+    }) => {
       const textLayer = textLayerRef.current;
-      if (!target || !textLayer || !textLayer.contains(target)) return;
+      if (!textLayer) return;
 
       const allSpans = Array.from(
         textLayer.querySelectorAll('span'),
       ) as HTMLElement[];
-      const targetSpan = (target as HTMLElement).closest('span') as HTMLElement | null;
-      if (!targetSpan) return;
+      if (allSpans.length === 0) return;
 
-      // ---- Line-based selection -----------------------------------------
-      // PDF.js splits text into individual word/item spans, each absolutely
-      // positioned. Spans on the same visual line share approximately the
-      // same `top` value. We collect all spans whose top is within half a
-      // line-height of the target span's top — that's the whole line.
-      const targetTop = targetSpan.offsetTop;
-      const targetHeight = targetSpan.offsetHeight || 12;
-      const tolerance = targetHeight * 0.5;
+      // Try the event target first — if it's inside the text layer, use it.
+      let targetSpan: HTMLElement | null = null;
+      if (point.target && textLayer.contains(point.target)) {
+        targetSpan = (point.target as HTMLElement).closest('span');
+      }
+
+      // If no span found (cursor was in a gap, on padding, or on the canvas),
+      // snap to the nearest span by viewport distance.
+      if (!targetSpan) {
+        let minDist = Infinity;
+        for (const span of allSpans) {
+          const r = span.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const dist = Math.hypot(point.clientX - cx, point.clientY - cy);
+          if (dist < minDist) {
+            minDist = dist;
+            targetSpan = span;
+          }
+        }
+        // If the nearest span is more than 40px away, the cursor is probably
+        // not over any text — don't show a popup.
+        if (!targetSpan || minDist > 40) return;
+      }
+
+      // ---- Line-based selection using getBoundingClientRect --------------
+      // Compare CENTER-Y (not offsetTop) for robustness against line-height
+      // variations and PDF.js transform quirks. Since we compare spans to
+      // EACH OTHER, the scroll offset cancels out.
+      const targetRect = targetSpan.getBoundingClientRect();
+      const targetCenterY = targetRect.top + targetRect.height / 2;
+      const tolerance = targetRect.height * 0.4;
 
       const lineSpans = allSpans.filter((span) => {
-        const spanTop = span.offsetTop;
-        return Math.abs(spanTop - targetTop) <= tolerance;
+        const spanRect = span.getBoundingClientRect();
+        const spanCenterY = spanRect.top + spanRect.height / 2;
+        return Math.abs(spanCenterY - targetCenterY) <= tolerance;
       });
 
       if (lineSpans.length === 0) return;
 
-      // Sort left-to-right so the joined text reads in the correct order.
-      lineSpans.sort((a, b) => a.offsetLeft - b.offsetLeft);
+      // Sort left-to-right by viewport position.
+      lineSpans.sort(
+        (a, b) =>
+          a.getBoundingClientRect().left - b.getBoundingClientRect().left,
+      );
 
-      // Join with spaces and collapse runs of whitespace.
       const lineText = lineSpans
         .map((s) => (s.textContent || '').trim())
         .filter(Boolean)
@@ -106,14 +141,11 @@ export function ReportViewer({
 
       if (!lineText) return;
 
-      // Clear previous highlight
       clearDwellHighlight();
 
-      // Apply new highlight to just this line's spans
       lineSpans.forEach((s) => s.classList.add('dwell-highlight'));
       highlightedSpansRef.current = lineSpans;
 
-      // Bounding rect of the line
       const rects = lineSpans.map((s) => s.getBoundingClientRect());
       const minX = Math.min(...rects.map((r) => r.left));
       const minY = Math.min(...rects.map((r) => r.top));
@@ -208,9 +240,6 @@ export function ReportViewer({
       await pdfPage.render({ canvasContext: ctx, viewport }).promise;
       if (cancelled) return;
 
-      // Build an invisible HTML text layer over the canvas so users can
-      // highlight and select text natively. The visible glyphs come from the
-      // canvas; these transparent spans are the actual selectable surface.
       if (!textLayerDiv) return;
       textLayerDiv.innerHTML = '';
       textLayerDiv.style.width = `${viewport.width}px`;
@@ -260,11 +289,6 @@ export function ReportViewer({
       });
   }, [reportId, page, showHeatmap]);
 
-  // ---- Manual selection handler -------------------------------------------
-  // Uses the selection's own getBoundingClientRect() (browser-computed,
-  // accounts for transforms on the text-layer spans) and normalizes against
-  // the SCROLL CONTAINER (not the canvas — the canvas is inside an inner
-  // wrapper with padding, which throws off the math).
   const handleSelectionChange = () => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
@@ -275,7 +299,6 @@ export function ReportViewer({
 
     const text = selection.toString().trim();
     if (!text || text.length < 2) return;
-    onTextSelect(text);
 
     const rect = selection.getRangeAt(0).getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -435,16 +458,13 @@ export function ReportViewer({
           visible={showHeatmap}
         />
 
-        <div className="min-h-full p-6">
+        <div className="min-h-full">
           {mimeType === 'application/pdf' ? (
-            <div className="relative mx-auto inline-block">
+            <div className="relative mx-auto my-6 inline-block">
               <canvas
                 ref={canvasRef}
                 className="block rounded-sm bg-white shadow-soft"
               />
-              {/* Invisible selectable text layer — sits over the canvas so the
-                  browser handles native selection + highlight. Highlight color
-                  comes from .pdf-text-layer ::selection in index.css. */}
               <div ref={textLayerRef} className="pdf-text-layer" />
             </div>
           ) : (
@@ -463,33 +483,31 @@ export function ReportViewer({
             )
           )}
         </div>
-
-        {isActive && currentGaze && (
-          <div
-            className="pointer-events-none absolute z-20"
-            style={{
-              left: `${currentGaze.x * 100}%`,
-              top: `${currentGaze.y * 100}%`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            {/* Pulsing outer ring */}
-            <div className="absolute inset-0 -translate-x-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-teal-400/20 animate-ping" />
-            {/* Solid dot */}
-            <div className="h-4 w-4 rounded-full bg-teal-500 shadow-soft border-2 border-white" />
-          </div>
-        )}
       </div>
 
-      {/* Dwell popup — appears when cursor dwells on a sentence */}
+      {/* Gaze dot — position:fixed so it stays locked to the cursor during
+          scroll. Uses raw clientX/clientY (viewport coords), not percentages. */}
+      {isActive && currentGaze && (
+        <div
+          className="pointer-events-none fixed z-50"
+          style={{
+            left: `${currentGaze.clientX}px`,
+            top: `${currentGaze.clientY}px`,
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          <div className="absolute inset-0 -translate-x-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-teal-400/20 animate-ping" />
+          <div className="h-4 w-4 rounded-full bg-teal-500 shadow-soft border-2 border-white" />
+        </div>
+      )}
+
+      {/* Dwell popup */}
       {dwellPopup && (
         <>
-          {/* Click-away overlay */}
           <div
             className="fixed inset-0 z-30"
             onClick={clearDwellHighlight}
           />
-          {/* Popup */}
           <div
             className="fixed z-40 animate-fade-in-up"
             style={{
@@ -535,7 +553,6 @@ export function ReportViewer({
                 Explain this
               </button>
             </div>
-            {/* Arrow pointing down */}
             <div className="mx-auto h-0 w-0 -translate-y-px border-x-4 border-t-4 border-x-transparent border-t-teal-200" style={{ width: '8px' }} />
           </div>
         </>

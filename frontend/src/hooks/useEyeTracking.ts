@@ -6,7 +6,13 @@ interface UseEyeTrackingOptions {
   containerRef: React.RefObject<HTMLElement | null>;
   pageNumber: number;
   onBatchReady?: (points: GazePoint[]) => void;
-  onDwell?: (point: { x: number; y: number; target: HTMLElement | null }) => void;
+  onDwell?: (point: {
+    x: number;
+    y: number;
+    clientX: number;
+    clientY: number;
+    target: HTMLElement | null;
+  }) => void;
 }
 
 const DWELL_THRESHOLD_MS = 1000;
@@ -22,28 +28,54 @@ export function useEyeTracking({
 }: UseEyeTrackingOptions) {
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentGaze, setCurrentGaze] = useState<{ x: number; y: number } | null>(null);
   const [isCalibrating, setIsCalibrating] = useState(false);
 
+  // Store BOTH viewport coords (for the dot, scroll-proof via position:fixed)
+  // and normalized coords (for gaze buffer / heatmap).
+  const [currentGaze, setCurrentGaze] = useState<{
+    clientX: number;
+    clientY: number;
+    normalizedX: number;
+    normalizedY: number;
+  } | null>(null);
+
   const gazeBuffer = useRef<GazePoint[]>([]);
-  const dwellStart = useRef<{ x: number; y: number; time: number; target: HTMLElement | null } | null>(null);
+  const dwellStart = useRef<{
+    clientX: number;
+    clientY: number;
+    normalizedX: number;
+    normalizedY: number;
+    time: number;
+  } | null>(null);
   const isCleaningUp = useRef(false);
 
-  // Ref to always hold the latest onDwell callback without forcing
-  // startTracking to be recreated on every render.
   const onDwellRef = useRef(onDwell);
   useEffect(() => {
     onDwellRef.current = onDwell;
   });
 
+  // --------------------------------------------------------------------------
+  // normalizeGaze — returns clamped [0,1] coords as long as the cursor is
+  // anywhere inside the container's visible viewport (including padding).
+  // Returns null only when the cursor is truly outside the container.
+  // --------------------------------------------------------------------------
   const normalizeGaze = useCallback(
-    (screenX: number, screenY: number) => {
+    (clientX: number, clientY: number) => {
       const el = containerRef.current;
       if (!el) return null;
       const rect = el.getBoundingClientRect();
-      const x = (screenX - rect.left) / rect.width;
-      const y = (screenY - rect.top) / rect.height;
-      if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) {
+        return null;
+      }
+
+      const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
       return { x, y };
     },
     [containerRef],
@@ -72,14 +104,20 @@ export function useEyeTracking({
           if (duration >= DWELL_THRESHOLD_MS) {
             gazeBuffer.current.push({
               page_number: pageNumber,
-              x: dwellStart.current.x,
-              y: dwellStart.current.y,
+              x: dwellStart.current.normalizedX,
+              y: dwellStart.current.normalizedY,
               duration_ms: duration,
             });
+            const targetNow = document.elementFromPoint(
+              dwellStart.current.clientX,
+              dwellStart.current.clientY,
+            ) as HTMLElement | null;
             onDwellRef.current?.({
-              x: dwellStart.current.x,
-              y: dwellStart.current.y,
-              target: dwellStart.current.target,
+              x: dwellStart.current.normalizedX,
+              y: dwellStart.current.normalizedY,
+              clientX: dwellStart.current.clientX,
+              clientY: dwellStart.current.clientY,
+              target: targetNow,
             });
           }
         }
@@ -88,23 +126,26 @@ export function useEyeTracking({
         return;
       }
 
-      setCurrentGaze(normalized);
+      setCurrentGaze({
+        clientX: e.clientX,
+        clientY: e.clientY,
+        normalizedX: normalized.x,
+        normalizedY: normalized.y,
+      });
 
-      // If no dwell in progress, start one.
       if (!dwellStart.current) {
         dwellStart.current = {
-          ...normalized,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          normalizedX: normalized.x,
+          normalizedY: normalized.y,
           time: now,
-          target: e.target as HTMLElement,
         };
         return;
       }
 
-      // If the mouse moved beyond the dwell radius, check if we accumulated
-      // enough dwell time to fire. If yes, emit + record. Either way, reset
-      // the dwell start to the current position.
-      const dx = Math.abs(normalized.x - dwellStart.current.x);
-      const dy = Math.abs(normalized.y - dwellStart.current.y);
+      const dx = Math.abs(normalized.x - dwellStart.current.normalizedX);
+      const dy = Math.abs(normalized.y - dwellStart.current.normalizedY);
       const moved = dx > DWELL_RADIUS || dy > DWELL_RADIUS;
 
       if (moved) {
@@ -112,25 +153,30 @@ export function useEyeTracking({
         if (duration >= DWELL_THRESHOLD_MS) {
           gazeBuffer.current.push({
             page_number: pageNumber,
-            x: dwellStart.current.x,
-            y: dwellStart.current.y,
+            x: dwellStart.current.normalizedX,
+            y: dwellStart.current.normalizedY,
             duration_ms: duration,
           });
+          const targetNow = document.elementFromPoint(
+            dwellStart.current.clientX,
+            dwellStart.current.clientY,
+          ) as HTMLElement | null;
           onDwellRef.current?.({
-            x: dwellStart.current.x,
-            y: dwellStart.current.y,
-            target: dwellStart.current.target,
+            x: dwellStart.current.normalizedX,
+            y: dwellStart.current.normalizedY,
+            clientX: dwellStart.current.clientX,
+            clientY: dwellStart.current.clientY,
+            target: targetNow,
           });
         }
         dwellStart.current = {
-          ...normalized,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          normalizedX: normalized.x,
+          normalizedY: normalized.y,
           time: now,
-          target: e.target as HTMLElement,
         };
       }
-      // If not moved beyond radius, do nothing — let the dwell keep
-      // accumulating. This is the key fix: previously the dwell timer
-      // was being implicitly reset by setCurrentGaze re-rendering.
     };
 
     const handleLeave = () => {
@@ -139,8 +185,8 @@ export function useEyeTracking({
         if (duration >= DWELL_THRESHOLD_MS) {
           gazeBuffer.current.push({
             page_number: pageNumber,
-            x: dwellStart.current.x,
-            y: dwellStart.current.y,
+            x: dwellStart.current.normalizedX,
+            y: dwellStart.current.normalizedY,
             duration_ms: duration,
           });
         }
@@ -157,34 +203,35 @@ export function useEyeTracking({
     };
 
     setIsActive(true);
-    console.info('[eye-tracking] Cursor tracking started. Hover over text to highlight sentences.');
+    console.info('[eye-tracking] Cursor tracking started.');
   }, [containerRef, normalizeGaze, pageNumber]);
-    // Heartbeat — checks every 200ms if the current dwell has exceeded the
-  // threshold. mousemove only fires on movement, so without this heartbeat
-  // a perfectly stationary mouse would never trigger the dwell callback.
+
+  // Heartbeat — fires onDwell when dwell threshold is reached, even if the
+  // mouse is perfectly stationary. Resolves target via elementFromPoint AT
+  // HEARTBEAT TIME so it's never stale (key fix for scroll drift).
   useEffect(() => {
     if (!isActive) return;
     const interval = setInterval(() => {
       if (!dwellStart.current) return;
       const duration = Date.now() - dwellStart.current.time;
       if (duration >= DWELL_THRESHOLD_MS) {
-        // Fire the dwell callback ONCE, then reset the dwell start so we
-        // don't fire again until the mouse moves to a new position.
         const point = {
-          x: dwellStart.current.x,
-          y: dwellStart.current.y,
-          target: dwellStart.current.target,
+          x: dwellStart.current.normalizedX,
+          y: dwellStart.current.normalizedY,
+          clientX: dwellStart.current.clientX,
+          clientY: dwellStart.current.clientY,
         };
-        // Push to gaze buffer too.
         gazeBuffer.current.push({
           page_number: pageNumber,
           x: point.x,
           y: point.y,
           duration_ms: duration,
         });
-        onDwellRef.current?.(point);
-        // Reset so we don't keep firing — user must move to a new line
-        // to trigger another dwell.
+        const target = document.elementFromPoint(
+          point.clientX,
+          point.clientY,
+        ) as HTMLElement | null;
+        onDwellRef.current?.({ ...point, target });
         dwellStart.current = null;
       }
     }, 200);
@@ -194,7 +241,11 @@ export function useEyeTracking({
   const stopTracking = useCallback(() => {
     const el = containerRef.current;
     if (el) {
-      const handlers = (el as unknown as { _gazeHandlers?: { move: (e: MouseEvent) => void; leave: () => void } })._gazeHandlers;
+      const handlers = (
+        el as unknown as {
+          _gazeHandlers?: { move: (e: MouseEvent) => void; leave: () => void };
+        }
+      )._gazeHandlers;
       if (handlers) {
         el.removeEventListener('mousemove', handlers.move);
         el.removeEventListener('mouseleave', handlers.leave);
@@ -207,8 +258,8 @@ export function useEyeTracking({
       if (duration >= DWELL_THRESHOLD_MS) {
         gazeBuffer.current.push({
           page_number: pageNumber,
-          x: dwellStart.current.x,
-          y: dwellStart.current.y,
+          x: dwellStart.current.normalizedX,
+          y: dwellStart.current.normalizedY,
           duration_ms: duration,
         });
       }
