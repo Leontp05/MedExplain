@@ -25,14 +25,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Check for the session cookie before hitting the API. If there's no
+    // session cookie, we know /auth/me will 401 — so skip the request
+    // entirely and just set the user to null. This avoids a noisy 401 in
+    // the browser console on every page load for logged-out visitors.
+    const hasSessionCookie =
+      typeof document !== 'undefined' &&
+      document.cookie.split(';').some((c) => c.trim().startsWith('medexplain_session='));
+
+    if (!hasSessionCookie) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     (async () => {
       try {
         const u = await api.me();
         if (cancelled) return;
         setUser(u);
-        // We have a valid session — make sure the CSRF token is restored
-        // before any authenticated POST fires. Reads the readable cookie
-        // first; falls back to /auth/csrf/refresh if the cookie was lost.
         await ensureCsrfToken();
       } catch {
         if (!cancelled) setUser(null);
