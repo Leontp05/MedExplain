@@ -29,7 +29,7 @@ def _set_session_cookie(response: Response, session_token: str) -> None:
         value=session_token,
         httponly=True,
         secure=settings.is_production,
-        samesite="lax",
+        samesite="none",
         max_age=settings.session_expire_minutes * 60,
         path="/",
     )
@@ -48,7 +48,7 @@ def _set_csrf_cookie(response: Response, csrf_token: str) -> None:
         value=csrf_token,
         httponly=False,
         secure=settings.is_production,
-        samesite="lax",
+        samesite="none",
         max_age=settings.session_expire_minutes * 60,
         path="/",
     )
