@@ -48,7 +48,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    logger.info("Database: %s", database_url.split("///")[-1].split("?")[0])
+    logger.info("Database connected")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("MedExplain AI started env=%s", settings.app_env)
